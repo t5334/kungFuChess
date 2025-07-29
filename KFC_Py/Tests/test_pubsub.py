@@ -1,7 +1,6 @@
-from PubSub import PubSub
+from PubSub import pubsub
 
 def test_pubsub():
-    pubsub = PubSub()
     results = []
 
     def callback(data):

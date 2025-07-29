@@ -1,15 +1,23 @@
+# PubSub.py
+
 class PubSub:
-    def __init__(self):
-        self.subscribers = {}
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(PubSub, cls).__new__(cls)
+            cls._instance.subscribers = {}
+        return cls._instance
 
     def subscribe(self, event_type: str, callback):
-        """Register a callback for a specific event type."""
+        """רישום לפעולה מסוימת"""
         if event_type not in self.subscribers:
             self.subscribers[event_type] = []
         self.subscribers[event_type].append(callback)
 
     def publish(self, event_type: str, data=None):
-        """Notify all subscribers of an event."""
-        if event_type in self.subscribers:
-            for callback in self.subscribers[event_type]:
-                callback(data)
+        """שיגור הודעה לכל מי שמחכה לאירוע מסוים"""
+        for callback in self.subscribers.get(event_type, []):
+            callback(data)
+
+pubsub = PubSub()

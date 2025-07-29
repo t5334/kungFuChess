@@ -8,7 +8,7 @@ from Piece import Piece
 import numpy as np
 import pathlib
 from BackgroundBoardFactory import create_background_board
-from PubSub import PubSub as EventPublisher
+from PubSub import pubsub
 
 from scoreBoard import ScoreBoard
 from MoveLog import MoveLog
@@ -43,67 +43,22 @@ class Game:
         self.selected_id_2: Optional[str] = None  
         self.last_cursor1 = (0, 0)
         self.last_cursor2 = (0, 0)
-        self.events = EventPublisher()
         self.opening_message_duration = 3  # שניות
         self.closing_message_duration = 3  # שניות
 
         #board = create_background_board("../pieces/background.png", "../pieces/board.png")
         self.scoreboard = ScoreBoard()
         self.move_log = MoveLog()
-        self.sound = SoundManager(self.events)
+        self.sound = SoundManager(pubsub)
         self.announcer = Announcer()
         self.register_event_listeners()
 
 
-    # def show_message(self, text, size=(512, 512), duration=3, color=(0, 255, 255, 255), font_size=1.2):
-    #     img = Img()
-    #     img.img = np.zeros((size[1], size[0], 4), dtype=np.uint8)  # RGBA
-
-    #     # מרכז את הטקסט אופקית
-    #     text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_size, 2)[0]
-    #     x = (size[0] - text_size[0]) // 2
-    #     y = (size[1] + text_size[1]) // 2
-
-    #     img.put_text(text, x, y, font_size=font_size, color=color, thickness=2)
-
-    #     start = time.time()
-    #     while time.time() - start < duration:
-    #         img.show()
-    # def show_message(self, text, background_img, duration=3, color=(0,255,255), font_scale=1.2):
-    #     img = background_img.copy()
-
-    #     # מיקום הטקסט במרכז
-    #     text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)[0]
-    #     x = (img.shape[1] - text_size[0]) // 2
-    #     y = (img.shape[0] + text_size[1]) // 2
-
-    #     # רקע מלבן מאחורי הטקסט (שקוף או צבע אחיד)
-    #     padding = 10
-    #     top_left = (x - padding, y - text_size[1] - padding)
-    #     bottom_right = (x + text_size[0] + padding, y + padding)
-    #     overlay = img.copy()
-    #     cv2.rectangle(overlay, top_left, bottom_right, (0, 0, 0, 100), -1)  # שחור שקוף
-
-    #     # לערבב עם התמונה המקורית (שקיפות)
-    #     alpha = 0.5
-    #     cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
-
-    #     # לצייר את הטקסט מעל
-    #     cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, 2)
-
-    #     # להציג את התמונה למשך זמן מסוים
-    #     start = time.time()
-    #     while time.time() - start < duration:
-    #         cv2.imshow("Message", img)
-    #         cv2.waitKey(1)
-    #     cv2.destroyWindow("Message")
-
-
     def register_event_listeners(self):
-        self.events.subscribe("capture", self.scoreboard.handle_capture)
-        self.events.subscribe("move", self.move_log.handle_move)
-        self.events.subscribe("game_start", self.announcer.show_start)
-        self.events.subscribe("game_over", self.announcer.show_end)
+        pubsub.subscribe("capture", self.scoreboard.handle_capture)
+        pubsub.subscribe("move", self.move_log.handle_move)
+        pubsub.subscribe("game_start", self.announcer.show_start)
+        pubsub.subscribe("game_over", self.announcer.show_end)
     def game_time_ms(self) -> int:
         return self._time_factor * (time.monotonic_ns() - self.START_NS) // 1_000_000
 
@@ -184,9 +139,9 @@ class Game:
         start_ms = self.START_NS
         for p in self.pieces:
             p.reset(start_ms)
-        EventPublisher.publish("game_start", {})
+        pubsub.publish("game_start", {})
         self._run_game_loop(num_iterations, is_with_graphics)
-        EventPublisher.publish("game_end", {"winner": self._side_of(self.pieces[0].id)})  # Assume first piece's side is the winner     
+        pubsub.publish("game_end", {"winner": self._side_of(self.pieces[0].id)})  # Assume first piece's side is the winner     
         self._announce_win()
         if self.kb_prod_1:
             self.kb_prod_1.stop()
@@ -261,6 +216,8 @@ class Game:
                     setattr(self, last, (r, c))
 
     def _show(self):
+        self.announcer.overlay_message(self.curr_board.img.img)
+
         self.curr_board.show()
 
     def _side_of(self, piece_id: str) -> str:
@@ -275,7 +232,7 @@ class Game:
         # Process the command - Piece.on_command() determines my_color internally
         mover.on_command(cmd, self.pos)
         
-        self.events.publish("move", {"piece_id": cmd.piece_id, "cmd": cmd})
+        pubsub.publish("move", {"piece_id": cmd.piece_id, "cmd": cmd})
 
         logger.info(f"Processed command: {cmd} for piece {cmd.piece_id}")
 
@@ -336,7 +293,7 @@ class Game:
                         continue
                     
                     logger.info(f"CAPTURE: {winner.id} captures {p.id} at {cell}")
-                    self.events.publish("capture", {
+                    pubsub.publish("capture", {
                         "attacker": winner.id,
                         "victim": p.id,
                         "cell": cell
@@ -371,4 +328,4 @@ class Game:
         winner = 'Black' if any(p.id.startswith('KB') for p in self.pieces) else 'White'
         logger.info(f"{winner} wins!")
 
-        self.events.publish("game_over", {"winner": winner})
+        pubsub.publish("game_over", {"winner": winner})
