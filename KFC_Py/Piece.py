@@ -9,7 +9,7 @@ class Piece:
     def __init__(self, piece_id: str, init_state):
         self.id = piece_id
         self.state = init_state
-
+        
     def on_command(self, cmd: Command, cell2piece: Dict[Tuple[int, int], List[Piece]]):
         """Process a command and potentially transition to a new state."""
         my_color = self.id[1]

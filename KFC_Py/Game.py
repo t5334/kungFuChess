@@ -9,14 +9,15 @@ import numpy as np
 import pathlib
 from BackgroundBoardFactory import create_background_board
 from PubSub import pubsub
-
-from scoreBoard import ScoreBoard
-from MoveLog import MoveLog
+from MoveLogger import MoveLogger
+from UIOverlay import UIOverlay
+from MoveLogger import MoveLogger
 from SoundManager import SoundManager
 from img import Img
+from ScoreBoard import Scoreboard
 from Announcer import Announcer
-
 from KeyboardInput import KeyboardProcessor, KeyboardProducer
+
 
 # set up a module-level logger – real apps can configure handlers/levels
 logger = logging.getLogger(__name__)
@@ -45,20 +46,21 @@ class Game:
         self.last_cursor2 = (0, 0)
         self.opening_message_duration = 3  # שניות
         self.closing_message_duration = 3  # שניות
-
+        self.logger = MoveLogger()
+        self.score = Scoreboard()
+        self.overlay = UIOverlay(self.logger, self.score)
         #board = create_background_board("../pieces/background.png", "../pieces/board.png")
-        self.scoreboard = ScoreBoard()
-        self.move_log = MoveLog()
         self.sound = SoundManager(pubsub)
         self.announcer = Announcer()
         self.register_event_listeners()
 
 
     def register_event_listeners(self):
-        pubsub.subscribe("capture", self.scoreboard.handle_capture)
-        pubsub.subscribe("move", self.move_log.handle_move)
+        pubsub.subscribe("capture", self.score.handle_capture)
+        pubsub.subscribe("move", self.logger.handle_move)
         pubsub.subscribe("game_start", self.announcer.show_start)
         pubsub.subscribe("game_over", self.announcer.show_end)
+    
     def game_time_ms(self) -> int:
         return self._time_factor * (time.monotonic_ns() - self.START_NS) // 1_000_000
 
@@ -176,8 +178,8 @@ class Game:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
 
         # ציור רשימת מהלכים אחרונים (אם קיימת)
-        if hasattr(self, 'move_log'):
-            for i, move in enumerate(self.move_log[-10:]):
+        if hasattr(self, 'logger'):
+            for i, move in enumerate(self.logger[-10:]):
                 y = 350 + i * 25
                 cv2.putText(frame, move, (1000, y),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
@@ -217,13 +219,16 @@ class Game:
 
     def _show(self):
         self.announcer.overlay_message(self.curr_board.img.img)
-
+        frame = self.curr_board.img.img
+        frame = self.overlay.draw_overlay(frame)  # ← כאן
         self.curr_board.show()
 
     def _side_of(self, piece_id: str) -> str:
         return piece_id[1]
 
     def _process_input(self, cmd: Command):
+        color_char = cmd.piece_id[1].upper()
+        color = "white" if color_char == "W" else "black"
         mover = self.piece_by_id.get(cmd.piece_id)
         if not mover:
             logger.debug("Unknown piece id %s", cmd.piece_id)
@@ -231,9 +236,16 @@ class Game:
 
         # Process the command - Piece.on_command() determines my_color internally
         mover.on_command(cmd, self.pos)
-        
-        pubsub.publish("move", {"piece_id": cmd.piece_id, "cmd": cmd})
+        from_cell, to_cell = cmd.params[:2]        # תא התחלה וסיום
+        ate = cmd.params[2] if len(cmd.params) > 2 else False  # אם יש אכילה
 
+        pubsub.publish("move", {
+            "piece": cmd.piece_id[0],
+            "color": color,
+            "from": from_cell,
+            "to": to_cell,
+            "ate": ate
+        })
         logger.info(f"Processed command: {cmd} for piece {cmd.piece_id}")
 
     def _resolve_collisions(self):
@@ -294,8 +306,8 @@ class Game:
                     
                     logger.info(f"CAPTURE: {winner.id} captures {p.id} at {cell}")
                     pubsub.publish("capture", {
-                        "attacker": winner.id,
-                        "victim": p.id,
+                        "attacker_color": winner.id[1],
+                        "piece_type": p.id[0].upper(),
                         "cell": cell
                     })
                     self.pieces.remove(p)
@@ -327,5 +339,5 @@ class Game:
     def _announce_win(self):
         winner = 'Black' if any(p.id.startswith('KB') for p in self.pieces) else 'White'
         logger.info(f"{winner} wins!")
-
         pubsub.publish("game_over", {"winner": winner})
+        
