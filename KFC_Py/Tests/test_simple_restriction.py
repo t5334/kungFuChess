@@ -2,9 +2,9 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from KFC_Py.KeyboardInput import KeyboardProcessor, KeyboardProducer
-from KFC_Py.GraphicsFactory import MockImgFactory
-from KFC_Py.GameFactory import create_game
+from KeyboardInput import KeyboardProcessor, KeyboardProducer
+from GraphicsFactory import MockImgFactory
+from GameFactory import create_game
 
 def test_simple():
     """Test basic functionality of player color restrictions."""

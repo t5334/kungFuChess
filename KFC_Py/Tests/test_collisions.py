@@ -67,7 +67,7 @@ class TestCollisions(unittest.TestCase):
         piece2.state.physics._start_ms = piece1.state.physics._start_ms + 1000
         
         self.pieces = [piece1, piece2]
-        game = Game(self.pieces, self.board)
+        game = Game(self.pieces, self.board, skip_validation=True)
         
         # Store initial piece count
         initial_count = len(game.pieces)
@@ -90,7 +90,7 @@ class TestCollisions(unittest.TestCase):
         piece1.state.physics._start_ms = piece2.state.physics._start_ms + 1000
         
         self.pieces = [piece1, piece2]
-        game = Game(self.pieces, self.board)
+        game = Game(self.pieces, self.board, skip_validation=True)
         
         # Store initial piece count
         initial_count = len(game.pieces)
@@ -103,17 +103,17 @@ class TestCollisions(unittest.TestCase):
                         "Pieces should not collide when winner is jumping")
     
     def test_collision_when_both_idle(self):
-        """Test that collision occurs when both pieces are idle"""
+        """Test that collision occurs when both pieces are idle and from different colors"""
         
-        # Create two pieces in the same cell
-        piece1 = self.create_piece("PW_1", (1, 1), "idle")
-        piece2 = self.create_piece("PW_2", (1, 1), "idle")
+        # Create two pieces in the same cell from different colors
+        piece1 = self.create_piece("PW_1", (1, 1), "idle")  # White piece
+        piece2 = self.create_piece("PB_2", (1, 1), "idle")  # Black piece
         
         # Set different start times so piece2 is "winner"
         piece2.state.physics._start_ms = piece1.state.physics._start_ms + 1000
         
         self.pieces = [piece1, piece2]
-        game = Game(self.pieces, self.board)
+        game = Game(self.pieces, self.board, skip_validation=True)
         
         # Run collision resolution
         game._resolve_collisions()
@@ -121,8 +121,30 @@ class TestCollisions(unittest.TestCase):
         # Only winner should remain
         self.assertEqual(len(game.pieces), 1, 
                         "Collision should occur when both pieces are idle")
-        self.assertEqual(game.pieces[0].id, "PW_2", 
+        self.assertEqual(game.pieces[0].id, "PB_2", 
                         "Winner should remain")
+    
+    def test_same_color_no_collision(self):
+        """Test that pieces of the same color don't capture each other"""
+        
+        # Create two pieces of the same color in the same cell
+        piece1 = self.create_piece("PW_1", (1, 1), "idle")  # White piece
+        piece2 = self.create_piece("PW_2", (1, 1), "idle")  # White piece
+        
+        # Set different start times so piece2 would be "winner"
+        piece2.state.physics._start_ms = piece1.state.physics._start_ms + 1000
+        
+        self.pieces = [piece1, piece2]
+        game = Game(self.pieces, self.board, skip_validation=True)
+        
+        # Run collision resolution
+        game._resolve_collisions()
+        
+        # Both pieces should remain (no capture between same color)
+        self.assertEqual(len(game.pieces), 2, 
+                        "Same color pieces should not capture each other")
+        self.assertIn(piece1, game.pieces, "First piece should remain")
+        self.assertIn(piece2, game.pieces, "Second piece should remain")
     
     def test_knight_moving_no_collision(self):
         """Test that knights moving don't cause collisions"""
@@ -135,7 +157,7 @@ class TestCollisions(unittest.TestCase):
         knight.state.physics._start_ms = piece2.state.physics._start_ms + 1000
         
         self.pieces = [knight, piece2]
-        game = Game(self.pieces, self.board)
+        game = Game(self.pieces, self.board, skip_validation=True)
         
         # Store initial piece count
         initial_count = len(game.pieces)
@@ -158,7 +180,7 @@ class TestCollisions(unittest.TestCase):
         knight.state.physics._start_ms = piece2.state.physics._start_ms + 1000
         
         self.pieces = [knight, piece2]
-        game = Game(self.pieces, self.board)
+        game = Game(self.pieces, self.board, skip_validation=True)
         
         # Debug: Print piece states before collision resolution
         print(f"\nBefore collision resolution:")

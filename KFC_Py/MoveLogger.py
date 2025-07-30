@@ -31,10 +31,9 @@ class MoveLogger:
         self.__init__()
 
     def log_move(self, color: str, piece: str, from_cell: str, to_cell: str, ate: bool = False):
-        notation = f"{piece}: {from_cell} -> {to_cell}"
-        # if ate:
-        #     notation += " ×"
-        #     self.points[color] += 1
+        notation = f"{piece}: {from_cell}->{to_cell}"
+        if ate:
+            notation += " x"
         self.moves[color].append(notation)
 
     def get_moves(self, color: str):

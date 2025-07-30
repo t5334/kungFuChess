@@ -11,9 +11,13 @@ from BackgroundBoardFactory import create_background_board
 from PubSub import pubsub
 from MoveLogger import MoveLogger
 from UIOverlay import UIOverlay
-from MoveLogger import MoveLogger
 from SoundManager import SoundManager
 from img import Img
+
+
+class InvalidBoard(Exception):
+    """Raised when board setup is invalid"""
+    pass
 from ScoreBoard import Scoreboard
 from Announcer import Announcer
 from KeyboardInput import KeyboardProcessor, KeyboardProducer
@@ -27,9 +31,14 @@ class InvalidBoard(Exception): ...
 
 
 class Game:
-    def __init__(self, pieces: List[Piece], board: Board):
+    def __init__(self, pieces: List[Piece], board: Board, skip_validation: bool = False):
         self.pieces = pieces
         self.board = board
+        
+        # Validate the board after basic initialization (unless skipped for tests)
+        if not skip_validation:
+            self._validate(pieces)
+            
         self.curr_board = None
         self.user_input_queue = queue.Queue()
         self.piece_by_id = {p.id: p for p in pieces}
@@ -72,7 +81,7 @@ class Game:
         # player 1 key‐map
         p1_map = {
             "up": "up", "down": "down", "left": "left", "right": "right",
-            "enter": "select", "space": "select", "+": "jump"
+            "enter": "select", "+": "jump"#, "space": "select",
         }
         # player 2 key‐map
         p2_map = {
@@ -111,23 +120,38 @@ class Game:
 
     def _run_game_loop(self, num_iterations=None, is_with_graphics=True):
         it_counter = 0
-        while not self._is_win():
+        game_ended = False
+        victory_screen_shown = False
+        
+        while not game_ended:
             now = self.game_time_ms()
 
-            for p in self.pieces:
-                p.update(now)
+            # אם המשחק עדיין פעיל
+            if not victory_screen_shown and not self._is_win():
+                for p in self.pieces:
+                    p.update(now)
 
-            self._update_cell2piece_map()
+                self._update_cell2piece_map()
 
-            while not self.user_input_queue.empty():
-                cmd: Command = self.user_input_queue.get()
-                self._process_input(cmd)
+                while not self.user_input_queue.empty():
+                    cmd: Command = self.user_input_queue.get()
+                    self._process_input(cmd)
+
+                self._resolve_collisions()
+                
+                # בדיקה אם המשחק הסתיים
+                if self._is_win():
+                    victory_screen_shown = True
+                    # פרסום אירוע סיום המשחק
+                    winner = 'Black' if any(p.id.startswith('KB') for p in self.pieces) else 'White'
+                    pubsub.publish("game_over", {"winner": winner})
 
             if is_with_graphics:
                 self._draw()
-                self._show()
-
-            self._resolve_collisions()
+                should_exit = self._show()
+                # רק אם תמונת הסיום הסתיימה, נסגור את המשחק
+                if should_exit and victory_screen_shown:
+                    game_ended = True
 
             # for testing
             if num_iterations is not None:
@@ -143,8 +167,11 @@ class Game:
             p.reset(start_ms)
         pubsub.publish("game_start", {})
         self._run_game_loop(num_iterations, is_with_graphics)
-        pubsub.publish("game_end", {"winner": self._side_of(self.pieces[0].id)})  # Assume first piece's side is the winner     
-        self._announce_win()
+        
+        # הודעה על סיום במסוף
+        winner = 'Black' if any(p.id.startswith('KB') for p in self.pieces) else 'White'
+        logger.info(f"{winner} wins!")
+        
         if self.kb_prod_1:
             self.kb_prod_1.stop()
             self.kb_prod_2.stop()
@@ -217,11 +244,43 @@ class Game:
                     logger.debug("Marker P%s moved to (%s, %s)", player, r, c)
                     setattr(self, last, (r, c))
 
+        # הצגת מסגרת סביב הכלי הנבחר
+        for player, selected_id in ((1, self.selected_id_1), (2, self.selected_id_2)):
+            if selected_id:
+                # מצא את הכלי הנבחר
+                selected_piece = self.piece_by_id.get(selected_id)
+                if selected_piece:
+                    # בדוק שהכלי שייך לשחקן הנכון
+                    piece_color = selected_piece.id[1]  # W או B
+                    expected_color = 'W' if player == 1 else 'B'  # שחקן 1 = לבן, שחקן 2 = שחור
+                    
+                    if piece_color == expected_color:
+                        # קבל את המיקום הנוכחי של הכלי
+                        r, c = selected_piece.current_cell()
+                        
+                        # צייר מסגרת עבה סביב הכלי הנבחר
+                        y1 = r * self.board.cell_H_pix + self.board.offset_y
+                        x1 = c * self.board.cell_W_pix + self.board.offset_x
+                        y2 = y1 + self.board.cell_H_pix - 1
+                        x2 = x1 + self.board.cell_W_pix - 1
+                        
+                        # צבע שונה לכל שחקן - כתום לשחקן 1, ורוד לשחקן 2
+                        color = (0, 165, 255) if player == 1 else (255, 0, 255)  # כתום או ורוד
+                        thickness = 4  # עובי המסגרת
+                        
+                        # צייר מסגרת עבה
+                        for i in range(thickness):
+                            self.curr_board.img.draw_rect(x1-i, y1-i, x2+i, y2+i, color)
+
     def _show(self):
         self.announcer.overlay_message(self.curr_board.img.img)
         frame = self.curr_board.img.img
         frame = self.overlay.draw_overlay(frame)  # ← כאן
         self.curr_board.show()
+        
+        # בדיקה אם תמונת הסיום הסתיימה (אחרי 5 שניות)
+        if self.announcer.is_victory_screen_finished():
+            return True  # סיגנל ליציאה מהמשחק
 
     def _side_of(self, piece_id: str) -> str:
         return piece_id[1]
@@ -234,10 +293,27 @@ class Game:
             logger.debug("Unknown piece id %s", cmd.piece_id)
             return
 
+        # שמור את המצב הקודם כדי לבדוק אם המהלך בוצע בהצלחה
+        old_state = mover.state
+        
         # Process the command - Piece.on_command() determines my_color internally
         mover.on_command(cmd, self.pos)
-        from_cell, to_cell = cmd.params[:2]        # תא התחלה וסיום
-        ate = cmd.params[2] if len(cmd.params) > 2 else False  # אם יש אכילה
+        
+        # בדוק אם המצב השתנה (המהלך בוצע בהצלחה)
+        if mover.state == old_state:
+            logger.debug(f"Command {cmd.type} failed for piece {cmd.piece_id} - state unchanged")
+            return  # לא מפרסמים הודעה על מהלך כושל
+        
+        # Handle different command types based on number of parameters
+        if len(cmd.params) >= 2:
+            # Commands with two or more parameters (from, to)
+            from_cell, to_cell = cmd.params[:2]
+            ate = cmd.params[2] if len(cmd.params) > 2 else False
+        else:
+            # Commands with one parameter or no parameters
+            from_cell = cmd.params[0] if cmd.params else None
+            to_cell = None
+            ate = False
 
         pubsub.publish("move", {
             "piece": cmd.piece_id[0],
@@ -321,16 +397,22 @@ class Game:
         for p in pieces:
             cell = p.current_cell()
             if cell in seen_cells:
-                # Allow overlap only if piece is from opposite side
+                # Same color pieces cannot overlap
                 if seen_cells[cell] == p.id[1]:
-                    return False
-            else:
-                seen_cells[cell] = p.id[1]
+                    raise InvalidBoard("Same color pieces cannot overlap")
+                # Different colors can overlap (for captures)
+            seen_cells[cell] = p.id[1]
             if p.id.startswith("KW"):
                 has_white_king = True
             elif p.id.startswith("KB"):
                 has_black_king = True
-        return has_white_king and has_black_king
+        
+        if not has_white_king:
+            raise InvalidBoard("Missing white king")
+        if not has_black_king:
+            raise InvalidBoard("Missing black king")
+        
+        return True
 
     def _is_win(self) -> bool:
         kings = [p for p in self.pieces if p.id.startswith(('KW', 'KB'))]

@@ -14,10 +14,11 @@ class Scoreboard:
         }
 
     def handle_capture(self, data):
-
+        print(f"[DEBUG] handle_capture received data: {data}")
        # attacer_id = data["attacker"]  # לדוגמה: "Pw2"
-        captured_color = "white" if data["attacker_color"] == "w" else "black"
-        capturing_color = "black" if captured_color == "white" else "white"
+        # צבע התוקף (מי שמבצע את הלכידה)
+        capturing_color = "white" if data["attacker_color"] == "W" else "black"
+        print(f"[DEBUG] attacker_color: {data.get('attacker_color', 'NOT_FOUND')}, capturing_color: {capturing_color}")
 
         # piece_type = attacer_id[0].upper()  # האות הראשונה מייצגת סוג כלי
 

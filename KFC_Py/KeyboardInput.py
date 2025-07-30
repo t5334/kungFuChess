@@ -93,6 +93,7 @@ class KeyboardProducer(threading.Thread):
         if action not in ("select", "jump"):
             return
 
+        print(f"[DEBUG] Player{self.player} ({self.my_color}) received action: {action}")
         cell = self.proc.get_cursor()
         
         if action == "select":
